@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PTCG 牌組翻譯 (英翻繁中)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      margin: 0;
+      padding: 16px;
+      line-height: 1.45;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 12px;
+    }
+    .bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    textarea {
+      width: 100%;
+      min-height: 65vh;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #8884;
+      box-sizing: border-box;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    @media (min-width: 1000px) {
+      .row {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    button {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #4445;
+      background: #2b7cff;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #8887;
+      cursor: not-allowed;
+    }
+    .note {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+    .status {
+      font-size: 14px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: #8881;
+      display: inline-block;
+      min-width: 220px;
+    }
+    .ok { background: #22aa2255; }
+    .warn { background: #ffaa0055; }
+    .err { background: #ff333355; }
+    .footer {
+      margin-top: 10px;
+      font-size: 12px;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <h1>PTCG 牌組翻譯 (英翻繁中)</h1>
+  <div class="bar">
+    <span id="dictStatus" class="status">讀取字典檔…</span>
+  </div>
+  <div class="row">
+    <div>
+      <div class="note">翻譯前 (英):</div>
+      <textarea id="inputTa">Pokémon: 19
+4 N's Zorua JTG 97
+4 N's Zoroark ex JTG 98
+2 Toedscool PAR 16
+1 Toedscruel PAR 17
+2 Munkidori TWM 95
+2 N's Reshiram JTG 116
+1 Cleffa OBF 80
+1 Bloodmoon Ursaluna ex TWM 141
+1 Pecharunt ex SFA 39
+1 Fezandipiti ex SFA 38
+
+Trainer: 34
+4 Arven OBF 186
+2 Janine's Secret Art PRE 112
+2 Boss's Orders PAL 172
+2 Professor Turo's Scenario PAR 171
+2 Iono PAL 185
+4 Buddy-Buddy Poffin TEF 144
+3 Nest Ball SVI 181
+2 Counter Catcher PAR 160
+2 Super Rod PAL 188
+2 Energy Switch SVI 173
+1 Ultra Ball SVI 196
+1 Earthen Vessel PAR 163
+1 Pal Pad SVI 182
+1 Unfair Stamp TWM 165
+2 Technical Machine: Evolution PAR 178
+1 Binding Mochi PRE 95
+2 N's Castle JTG 152
+
+Energy: 7
+7 Darkness Energy SVE 15</textarea>
+    </div>
+    <div>
+      <div class="note">翻譯後 (繁中):</div>
+      <textarea id="outputTa" readonly></textarea>
+    </div>
+  </div>
+
+  <script>
+    // Utility
+    const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const byLenDesc = (a, b) => b.length - a.length;
+
+    // Try to detect trailing set code and collector number
+    function stripSetCodeTokens(tokens) {
+      const isAllDigits = (t) => /^\d+$/.test(t);
+      const isSetCode = (t) => /^[A-Z]{2,4}$/.test(t); // e.g., TWM, OBF, SFA, PAR, JTG, PAL, SVI, TEF, PRE, OBF
+      // Common pattern: ... [SET] [###]
+      let arr = tokens.slice();
+      if (arr.length >= 2 && isAllDigits(arr[arr.length - 1]) && isSetCode(arr[arr.length - 2])) {
+        arr.pop();
+        arr.pop();
+      } else if (arr.length >= 1 && (isAllDigits(arr[arr.length - 1]) || isSetCode(arr[arr.length - 1]))) {
+        // Occasionally lines end with just a code or just a number
+        arr.pop();
+      }
+      return arr;
+    }
+
+    function parseLineCategory(currCategory, raw) {
+      // Detect headers; return {category, headerTranslated, isHeader}
+      const line = raw.trim();
+      const headerRe = /^(Pokémon|Pokemon|Trainer|Energy)\s*:\s*(\d+)?\s*$/i;
+      const m = line.match(headerRe);
+      if (m) {
+        const sec = m[1].toLowerCase();
+        let category = currCategory;
+        if (sec.startsWith("pok")) category = "pokemon";
+        else if (sec.startsWith("tra")) category = "trainer";
+        else if (sec.startsWith("ene")) category = "energy";
+        const count = m[2] ? `: ${m[2]}` : "";
+        const zhHeader = (category === "pokemon" ? "寶可夢" : category === "trainer" ? "訓練家" : "能量") + count;
+        return { category, headerTranslated: zhHeader, isHeader: true };
+      }
+      return { category: currCategory, headerTranslated: null, isHeader: false };
+    }
+
+    function extractQtyAndTokens(line) {
+      const m = line.match(/^\s*(\d+)\s+(.*)$/);
+      if (!m) return null;
+      const qty = m[1];
+      let rest = m[2].trim();
+      if (!rest) return null;
+      let tokens = rest.split(/\s+/);
+      // Pull out 'ex' token (case-insensitive)
+      let hasEx = false;
+      tokens = tokens.filter(t => {
+        if (/^ex$/i.test(t)) { hasEx = true; return false; }
+        return true;
+      });
+      // Remove trailing set code / number tokens
+      tokens = stripSetCodeTokens(tokens);
+      return { qty, tokens, hasEx };
+    }
+
+    function longestMatchReplace(text, dict) {
+      // Replace the longest matching key within the text, case-insensitive, at word boundaries when possible.
+      const keys = Object.keys(dict).sort(byLenDesc);
+      for (const key of keys) {
+        const re = new RegExp("\\b" + escRe(key) + "\\b", "i");
+        const m = text.match(re);
+        if (m) {
+          // Replace only the first occurrence
+          return text.replace(re, dict[key]);
+        }
+      }
+      return text; // unchanged if nothing matched
+    }
+
+    // Prefer exact full-name match from dict (case-insensitive). Returns translation or null.
+    function exactFullNameMatch(text, dict) {
+      if (!text) return null;
+      const lower = text.toLowerCase();
+      for (const k of Object.keys(dict)) {
+        if (k.toLowerCase() === lower) return dict[k];
+      }
+      return null;
+    }
+
+    function perTokenFallback(text, dict) {
+      // Try to translate individual tokens if possible (best-effort)
+      const tokens = text.split(/\s+/);
+      const keysSet = new Set(Object.keys(dict));
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        // match exact key case-insensitive by scanning keysSet (quick path: direct, then linear scan)
+        if (dict[token]) {
+          tokens[i] = dict[token];
+          continue;
+        }
+        // case-insensitive scan for token
+        const hit = [...keysSet].find(k => k.toLowerCase() === token.toLowerCase());
+        if (hit) tokens[i] = dict[hit];
+      }
+      return tokens.join(" ");
+    }
+
+    // Translate "TrainerName's ..." to "TrainerZH 的 ..." using the trainer dictionary.
+    function applyTrainerPossessive(text, dictTrainer) {
+      if (!dictTrainer || typeof text !== "string" || !text) return text;
+      const entries = Object.entries(dictTrainer);
+      if (entries.length === 0) return text;
+      // Try longest trainer names first
+      const sorted = entries.sort((a, b) => b[0].length - a[0].length);
+      for (const [enName, zhName] of sorted) {
+        const re = new RegExp("\\b" + escRe(enName) + "\\s*['’]s\\b", "i");
+        if (re.test(text)) {
+          return text.replace(re, `${zhName} 的`);
+        }
+      }
+      return text;
+    }
+
+    function translatePokemonLine(qty, tokens, dictPokemon, dictTrainer) {
+      let base = tokens.join(" ");
+      // Handle trainer possessives like "N's", "Marnie's" appearing in Pokémon names
+      base = applyTrainerPossessive(base, dictTrainer);
+
+      // Best-effort replacement by longest key first
+      let replaced = longestMatchReplace(base, dictPokemon);
+      if (replaced === base) {
+        // Fallback: try per-token translation (e.g., "Bloodmoon Ursaluna" -> "Bloodmoon 月月熊")
+        replaced = perTokenFallback(base, dictPokemon);
+      }
+      return `${qty} ${replaced}`;
+    }
+
+    function translateGenericLine(qty, tokens, dict, dictTrainer) {
+      // Join tokens to a base string for matching
+      let base = tokens.join(" ");
+
+      // 1) If this is a Trainer dict, prioritize exact full-name match first (e.g., "Janine's Secret Art")
+      const isTrainerDict = dict === dictTrainer;
+      if (isTrainerDict) {
+        const fullHit = exactFullNameMatch(base, dictTrainer);
+        if (fullHit) {
+          return `${qty} ${fullHit}`;
+        }
+      }
+
+      // 2) Apply trainer possessive handling to convert "Trainer's" to "TrainerZH 的"
+      if (dictTrainer) {
+        base = applyTrainerPossessive(base, dictTrainer);
+      }
+
+      // 3) Prefer exact/longest name replacement for remaining names
+      let replaced = longestMatchReplace(base, dict);
+      if (replaced === base) {
+        replaced = perTokenFallback(base, dict);
+      }
+      return `${qty} ${replaced}`;
+    }
+
+    function translateDecklist(text, dicts) {
+      const { pokemon, trainer, energy } = dicts;
+      const lines = text.split(/\r?\n/);
+      let category = "pokemon"; // default until a header is seen
+      const out = [];
+
+      for (const raw of lines) {
+        if (!raw.trim()) { out.push(""); continue; }
+
+        const hdr = parseLineCategory(category, raw);
+        if (hdr.isHeader) {
+          category = hdr.category;
+          out.push(hdr.headerTranslated);
+          continue;
+        }
+
+        const parsed = extractQtyAndTokens(raw);
+        if (!parsed) {
+          // Not a standard "qty ..." line; pass through unchanged
+          out.push(raw);
+          continue;
+        }
+
+        const { qty, tokens, hasEx } = parsed;
+        let zhLine;
+        if (category === "pokemon") {
+          zhLine = translatePokemonLine(qty, tokens, pokemon, trainer);
+          if (hasEx) zhLine += " ex"; // preserve 'ex' suffix
+        } else if (category === "trainer") {
+          zhLine = translateGenericLine(qty, tokens, trainer, trainer);
+        } else if (category === "energy") {
+          zhLine = translateGenericLine(qty, tokens, energy, null);
+        } else {
+          // Unknown section: try all dicts in order
+          let tmp = translateGenericLine(qty, tokens, trainer, trainer);
+          if (tmp === `${qty} ${tokens.join(" ")}`) {
+            tmp = translateGenericLine(qty, tokens, energy, null);
+          }
+          if (tmp === `${qty} ${tokens.join(" ")}`) {
+            tmp = translatePokemonLine(qty, tokens, pokemon, trainer);
+          }
+          zhLine = tmp;
+          if (hasEx) zhLine += " ex";
+        }
+
+        out.push(zhLine);
+      }
+
+      return out.join("\n");
+    }
+
+    // Load dictionaries (pokemon/trainer/energy)
+    const dictState = {
+      pokemon: null,
+      trainer: null,
+      energy: null
+    };
+
+    async function loadDict(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      return res.json();
+    }
+
+    async function init() {
+      const statusEl = document.getElementById("dictStatus");
+      try {
+        const [pokemon, trainer, energy] = await Promise.all([
+          loadDict("cards/pokemon.json"),
+          loadDict("cards/trainer.json"),
+          loadDict("cards/energy.json"),
+        ]);
+        dictState.pokemon = pokemon;
+        dictState.trainer = trainer;
+        dictState.energy = energy;
+        statusEl.textContent = "字典檔載入完成";
+        statusEl.classList.add("ok");
+      } catch (err) {
+        statusEl.textContent = "無法載入字典檔。";
+        statusEl.classList.add("err");
+        console.error(err);
+        // Still allow translating with empty dicts (no-op translation)
+        dictState.pokemon = dictState.pokemon || {};
+        dictState.trainer = dictState.trainer || {};
+        dictState.energy = dictState.energy || {};
+      }
+    }
+
+    // Translate function used by paste handler and initial render
+    function runTranslate() {
+      const input = document.getElementById("inputTa").value;
+      const output = translateDecklist(input, dictState);
+      document.getElementById("outputTa").value = output;
+    }
+
+    // Translate instantly when user pastes into the input textarea
+    document.getElementById("inputTa").addEventListener("paste", (e) => {
+      // Allow paste to complete, then translate with updated value
+      requestAnimationFrame(runTranslate);
+    });
+
+    // Also translate on input changes (typing) for better UX
+    document.getElementById("inputTa").addEventListener("input", runTranslate);
+
+    // Auto-translate once dictionaries are loaded to show result immediately
+    window.addEventListener("load", async () => {
+      await init();
+      // Trigger initial translate after dictionaries load
+      (function ensureInitialTranslate() {
+        if (dictState.pokemon && dictState.trainer && dictState.energy) {
+          const input = document.getElementById("inputTa").value;
+          const output = translateDecklist(input, dictState);
+          document.getElementById("outputTa").value = output;
+        }
+      })();
+    });
+  </script>
+</body>
+</html>

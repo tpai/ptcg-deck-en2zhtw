@@ -248,7 +248,11 @@ Energy: 7
       for (const [enName, zhName] of sorted) {
         const re = new RegExp("\\b" + escRe(enName) + "\\s*['’]s\\b", "i");
         if (re.test(text)) {
-          return text.replace(re, `${zhName} 的`);
+          return text.replace(re, `${zhName}的`);
+        }
+        const re2 = new RegExp("\\b" + escRe(enName) + "\\b", "i");
+        if (re2.test(text)) {
+          return text.replace(re2, `${zhName}`);
         }
       }
       return text;
@@ -256,6 +260,7 @@ Energy: 7
 
     function translatePokemonLine(qty, tokens, dictPokemon, dictTrainer) {
       let base = tokens.join(" ");
+
       // Handle trainer possessives like "N's", "Marnie's" appearing in Pokémon names
       base = applyTrainerPossessive(base, dictTrainer);
 
@@ -265,7 +270,7 @@ Energy: 7
         // Fallback: try per-token translation (e.g., "Bloodmoon Ursaluna" -> "Bloodmoon 月月熊")
         replaced = perTokenFallback(base, dictPokemon);
       }
-      return `${qty} ${replaced}`;
+      return `${qty} ${replaced.replace(' ', '')}`;
     }
 
     function translateGenericLine(qty, tokens, dict, dictTrainer) {
